@@ -1,3 +1,5 @@
-bucket_name = "chainlink-storage-bucket"
-project_id  = "sapient-helix-352609"
-sync_branch = "main"
+network      = "test"
+project_id   = "sapient-helix-352609"
+sync_branch  = "main"
+bucket_name  = "chainlink-storage-bucket"
+cluster_name = "cluster"
