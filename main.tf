@@ -14,122 +14,45 @@
  * limitations under the License.
  */
 
-
-
-
-module "gke-cluster" {
-  source                   = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-cluster?ref=v15.0.0"
-  for_each                 = { for cluster in var.clusters : cluster.cluster_location => cluster }
-  project_id               = var.project_id
-  name                     = join("-", tolist([var.cluster_name, each.value.cluster_location]))
-  description              = var.cluster_description
-  location                 = each.value.cluster_location
-  labels                   = var.labels
-  network                  = var.network
-  subnetwork               = each.value.subnetwork
-  secondary_range_pods     = each.value.secondary_range_pods
-  secondary_range_services = each.value.secondary_range_services
-  cluster_autoscaling = {
-    enabled    = true
-    cpu_min    = var.cluster_autoscale_cpu_min
-    cpu_max    = var.cluster_autoscale_cpu_max
-    memory_min = var.cluster_autoscale_mem_min
-    memory_max = var.cluster_autoscale_mem_max
-  }
-  addons = {
-    cloudrun_config                       = false
-    dns_cache_config                      = true
-    http_load_balancing                   = true
-    gce_persistent_disk_csi_driver_config = true
-    horizontal_pod_autoscaling            = var.horizontal_pod_autoscaling
-    config_connector_config               = true
-    kalm_config                           = false
-    gcp_filestore_csi_driver_config       = false
-    network_policy_config                 = false
-    istio_config = {
-      enabled = false
-      tls     = false
-    }
-  }
-  private_cluster_config = {
-    enable_private_nodes    = false
-    enable_private_endpoint = false
-    master_ipv4_cidr_block  = each.value.master_ipv4_cidr_block
-    master_global_access    = false
-  }
-  logging_config              = ["SYSTEM_COMPONENTS", "WORKLOADS"]
-  monitoring_config           = ["SYSTEM_COMPONENTS", "WORKLOADS"]
-  default_max_pods_per_node   = var.default_max_pods_per_node
-  enable_binary_authorization = var.enable_binary_authorization
-  master_authorized_ranges    = var.master_authorized_ranges
+locals {
+  cluster_type           = "simple-autopilot-private"
+  network_name           = "simple-autopilot-private-network"
+  subnet_name            = "simple-autopilot-private-subnet"
+  master_auth_subnetwork = "simple-autopilot-private-master-subnet"
+  pods_range_name        = "ip-range-pods-simple-autopilot-private"
+  svc_range_name         = "ip-range-svc-simple-autopilot-private"
+  subnet_names           = [for subnet_self_link in module.gcp-network.subnets_self_links : split("/", subnet_self_link)[length(split("/", subnet_self_link)) - 1]]
 }
 
-module "nodepool" {
-  source                      = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-nodepool?ref=v15.0.0"
-  for_each                    = { for cluster in var.clusters : cluster.cluster_location => cluster }
-  project_id                  = var.project_id
-  cluster_name                = module.gke-cluster[each.value.cluster_location].name
-  location                    = module.gke-cluster[each.value.cluster_location].location
-  name                        = join("-", tolist([module.gke-cluster[each.value.cluster_location].name, "np"]))
-  node_service_account_create = true
-  node_count                  = var.nodepool_node_count
-  autoscaling_config = {
-    min_node_count = var.autoscale_nodepool_min_node_count
-    max_node_count = var.autoscale_nodepool_max_node_count
-  }
+
+data "google_client_config" "default" {}
+
+provider "kubernetes" {
+  host                   = "https://${module.gke.endpoint}"
+  token                  = data.google_client_config.default.access_token
+  cluster_ca_certificate = base64decode(module.gke.ca_certificate)
 }
 
-module "gke-hub" {
-  source     = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-hub"
-  project_id = var.project_id
-  clusters = {
-    for cluster in var.clusters : cluster.cluster_location => module.gke-cluster[cluster.cluster_location].id
-  }
-  features = {
-    appdevexperience             = false
-    configmanagement             = true
-    identityservice              = false
-    multiclusteringress          = null
-    servicemesh                  = false
-    multiclusterservicediscovery = false
-  }
-  configmanagement_templates = {
-    default = {
-      binauthz = false
-      config_sync = {
-        git = {
-          gcp_service_account_email = null
-          https_proxy               = null
-          policy_dir                = var.policy_dir
-          secret_type               = "ssh"
-          source_format             = "hierarchy"
-          sync_branch               = var.sync_branch
-          sync_repo                 = var.sync_repo
-          sync_rev                  = null
-          sync_wait_secs            = null
-        }
-        prevent_drift = false
-        source_format = "hierarchy"
-      }
-      hierarchy_controller = null
-      policy_controller = {
-        audit_interval_seconds = 120
-        exemptable_namespaces = [
-          "asm-system",
-          "config-management-system",
-          "config-management-monitoring",
-          "gatekeeper-system",
-          "kube-system",
-          "cos-auditd"
-        ]
-        log_denies_enabled         = true
-        referential_rules_enabled  = false
-        template_library_installed = true
-      }
-      version = "1.12.0"
-    }
-  }
-  configmanagement_clusters = {
-    "default" = [for cluster in var.clusters : cluster.cluster_location]
-  }
+module "gke" {
+  source                          = "../../modules/beta-autopilot-private-cluster/"
+  project_id                      = var.project_id
+  name                            = "${local.cluster_type}-cluster"
+  regional                        = true
+  region                          = var.region
+  network                         = module.gcp-network.network_name
+  subnetwork                      = local.subnet_names[index(module.gcp-network.subnets_names, local.subnet_name)]
+  ip_range_pods                   = local.pods_range_name
+  ip_range_services               = local.svc_range_name
+  release_channel                 = "REGULAR"
+  enable_vertical_pod_autoscaling = true
+  enable_private_endpoint         = true
+  enable_private_nodes            = true
+  master_ipv4_cidr_block          = "172.16.0.0/28"
+
+  master_authorized_networks = [
+    {
+      cidr_block   = "10.60.0.0/17"
+      display_name = "VPC"
+    },
+  ]
 }
