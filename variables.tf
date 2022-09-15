@@ -14,27 +14,39 @@
  * limitations under the License.
  */
 
-variable "project_id" {
-  description = "GKE Cluster project id."
-  type        = string
+
+variable "clusters" {
+  description = "GKE Clusters params"
+  type = list(object({
+    cluster_location         = string
+    subnetwork               = string
+    secondary_range_pods     = string
+    secondary_range_services = string
+    master_ipv4_cidr_block   = string
+  }))
 }
 
 variable "cluster_name" {
-  description = "	Cluster name."
+  description = "GKE Cluster Name"
   type        = string
-  default     = "my-cluster"
+  default     = "multitenant-gke-cluster"
+}
+
+variable "project_id" {
+  description = "Project ID in which GKE Cluster will be created"
+  type        = string
+}
+
+variable "horizontal_pod_autoscaling" {
+  description = "Enable / Disable Horizontal Pod Autoscaling"
+  type        = bool
+  default     = true
 }
 
 variable "cluster_description" {
-  description = "Cluster description."
+  description = "Cluster description"
   type        = string
-  default     = " This is a simple single tenant cluster"
-}
-
-variable "cluster_location" {
-  description = "	Cluster zone or region."
-  type        = string
-  default     = "us-central1"
+  default     = "GKE multi region cluster"
 }
 
 variable "labels" {
@@ -43,112 +55,80 @@ variable "labels" {
   default     = { "env" : "test" }
 }
 
-
 variable "network" {
-  description = "Name or self link of the VPC used for the cluster. Use the self link for Shared VPC."
+  description = "VPC Network where GKE Clusters will be launched"
   type        = string
 }
 
-
-variable "subnetwork" {
-  description = "VPC subnetwork name or self link."
-  type        = string
+variable "cluster_autoscale_cpu_min" {
+  description = "Min. CPU for cluster autoscaling"
+  type        = number
+  default     = 20
 }
 
-variable "secondary_range_pods" {
-  description = "Subnet secondary range name used for pods."
-  type        = string
+variable "cluster_autoscale_cpu_max" {
+  description = "Max. CPU for cluster autoscaling"
+  type        = number
+  default     = 80
 }
 
-variable "secondary_range_services" {
-  description = "Subnet secondary range name used for pods."
-  type        = string
+variable "cluster_autoscale_mem_min" {
+  description = "Min. memory for cluster autoscaling"
+  type        = number
+  default     = 2048
 }
 
-variable "cluster_autoscaling" {
-  description = "Enable and configure limits for Node Auto-Provisioning with Cluster Autoscaler."
-  type = object({
-    enabled    = bool
-    cpu_min    = number
-    cpu_max    = number
-    memory_min = number
-    memory_max = number
-  })
-  default = {
-    enabled    = true
-    cpu_min    = 10
-    cpu_max    = 80
-    memory_min = 1024
-    memory_max = 4096
-  }
-}
-
-variable "horizontal_pod_autoscaling" {
-  description = "Set to true to enable horizontal pod autoscaling"
-  type        = bool
-  default     = true
-}
-
-variable "vertical_pod_autoscaling" {
-  description = "Set to true to enable vertical pod autoscaling"
-  type        = bool
-  default     = true
-}
-
-variable "database_encryption_key" {
-  description = "Database Encryption Key name to	enable and configure GKE application-layer secrets encryption."
-  type        = string
-  default     = null
-}
-
-variable "private_cluster_config" {
-  description = "Enable and configure private cluster, private nodes must be true if used."
-  type = object({
-    enable_private_nodes    = bool
-    enable_private_endpoint = bool
-    master_ipv4_cidr_block  = string //The IP range in CIDR notation to use for the hosted master network
-    master_global_access    = bool
-  })
-  default = {
-    enable_private_nodes    = false
-    enable_private_endpoint = false
-    master_ipv4_cidr_block  = "192.168.1.0/28" //The IP range in CIDR notation to use for the hosted master network
-    master_global_access    = true
-  }
-}
-
-variable "master_authorized_ranges" {
-  description = "External Ip address ranges that can access the Kubernetes cluster master through HTTPS.."
-  type        = map(string)
-  default = {
-    "public" = "0.0.0.0/0"
-  }
+variable "cluster_autoscale_mem_max" {
+  description = "Max. memory for cluster autoscaling"
+  type        = number
+  default     = 4096
 }
 
 variable "enable_binary_authorization" {
-  description = "Enable Google Binary Authorization."
+  description = "Enable Binary Authorization"
   type        = bool
   default     = false
 }
 
 variable "default_max_pods_per_node" {
-  description = "Max nodes allowed per node."
+  description = "Max no. of pods per node"
   type        = number
-  default     = 110
+  default     = 100
+}
+
+
+variable "nodepool_node_count" {
+  description = "Nodepool Node Count"
+  type        = number
+  default     = 5
+}
+
+variable "autoscale_nodepool_min_node_count" {
+  description = "Nodepool Min. Node Count"
+  type        = number
+  default     = 5
+}
+
+variable "autoscale_nodepool_max_node_count" {
+  description = "Nodepool Max. Node Count"
+  type        = number
+  default     = 20
 }
 
 variable "sync_repo" {
+  description = "Sync repo"
   type        = string
-  description = "ACM Git repo address	"
-  default     = "https://github.com/GoogleCloudPlatform/acm-essentials"
+  default     = "https://github.com/GKE-Accelerators/multi-tenant-gke-cluster"
 }
+
 variable "sync_branch" {
+  description = "Sync Branch"
   type        = string
-  description = "ACM repo Git branch. If un-set, uses Config Management default."
-  default     = ""
+  default     = "main"
 }
+
 variable "policy_dir" {
+  description = "Policy Directory"
   type        = string
-  description = "ACM repo Git revision. If un-set, uses Config Management default."
-  default     = ""
+  default     = "config"
 }

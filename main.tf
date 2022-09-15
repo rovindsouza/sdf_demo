@@ -14,18 +14,28 @@
  * limitations under the License.
  */
 
+
+
+
 module "gke-cluster" {
   source                   = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-cluster?ref=v15.0.0"
+  for_each                 = { for cluster in var.clusters : cluster.cluster_location => cluster }
   project_id               = var.project_id
-  name                     = var.cluster_name
+  name                     = join("-", tolist([var.cluster_name, each.value.cluster_location]))
   description              = var.cluster_description
-  location                 = var.cluster_location
+  location                 = each.value.cluster_location
   labels                   = var.labels
   network                  = var.network
-  subnetwork               = var.subnetwork
-  secondary_range_pods     = var.secondary_range_pods
-  secondary_range_services = var.secondary_range_services
-  cluster_autoscaling      = var.cluster_autoscaling
+  subnetwork               = each.value.subnetwork
+  secondary_range_pods     = each.value.secondary_range_pods
+  secondary_range_services = each.value.secondary_range_services
+  cluster_autoscaling = {
+    enabled    = true
+    cpu_min    = var.cluster_autoscale_cpu_min
+    cpu_max    = var.cluster_autoscale_cpu_max
+    memory_min = var.cluster_autoscale_mem_min
+    memory_max = var.cluster_autoscale_mem_max
+  }
   addons = {
     cloudrun_config                       = false
     dns_cache_config                      = true
@@ -41,70 +51,85 @@ module "gke-cluster" {
       tls     = false
     }
   }
-  private_cluster_config = var.private_cluster_config
-  logging_config         = ["SYSTEM_COMPONENTS", "WORKLOADS"]
-  monitoring_config      = ["SYSTEM_COMPONENTS", "WORKLOADS"]
-  database_encryption = (
-    var.database_encryption_key == null ? {
-      enabled  = false
-      state    = null
-      key_name = null
-      } : {
-      enabled  = true
-      state    = "ENCRYPTED"
-      key_name = var.database_encryption_key
-    }
-  )
+  private_cluster_config = {
+    enable_private_nodes    = false
+    enable_private_endpoint = false
+    master_ipv4_cidr_block  = each.value.master_ipv4_cidr_block
+    master_global_access    = false
+  }
+  logging_config              = ["SYSTEM_COMPONENTS", "WORKLOADS"]
+  monitoring_config           = ["SYSTEM_COMPONENTS", "WORKLOADS"]
   default_max_pods_per_node   = var.default_max_pods_per_node
   enable_binary_authorization = var.enable_binary_authorization
-  master_authorized_ranges    = var.master_authorized_ranges
-  vertical_pod_autoscaling    = var.vertical_pod_autoscaling
+  master_authorized_ranges    = {}
 }
 
 module "nodepool" {
   source                      = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-nodepool?ref=v15.0.0"
+  for_each                    = { for cluster in var.clusters : cluster.cluster_location => cluster }
   project_id                  = var.project_id
-  cluster_name                = module.gke-cluster.name
-  location                    = var.cluster_location
-  name                        = "${module.gke-cluster.name}-np"
+  cluster_name                = module.gke-cluster[each.value.cluster_location].name
+  location                    = module.gke-cluster[each.value.cluster_location].location
+  name                        = join("-", tolist([module.gke-cluster[each.value.cluster_location].name, "np"]))
   node_service_account_create = true
-  node_count                  = 5
+  node_count                  = var.nodepool_node_count
   autoscaling_config = {
-    min_node_count = 5
-    max_node_count = 20
+    min_node_count = var.autoscale_nodepool_min_node_count
+    max_node_count = var.autoscale_nodepool_max_node_count
   }
 }
 
-module "gke-gateway-api" {
-  source         = "./modules/gateway-api"
-  endpoint       = module.gke-cluster.endpoint
-  ca_certificate = module.gke-cluster.ca_certificate
+module "gke-hub" {
+  source     = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-hub"
+  project_id = var.project_id
+  clusters = {
+    for cluster in var.clusters : cluster.cluster_location => module.gke-cluster[cluster.cluster_location].id
+  }
+  features = {
+    appdevexperience             = false
+    configmanagement             = true
+    identityservice              = false
+    multiclusteringress          = ""
+    servicemesh                  = false
+    multiclusterservicediscovery = false
+  }
+  configmanagement_templates = {
+    default = {
+      binauthz = false
+      config_sync = {
+        git = {
+          gcp_service_account_email = null
+          https_proxy               = null
+          policy_dir                = var.policy_dir
+          secret_type               = "ssh"
+          source_format             = "hierarchy"
+          sync_branch               = var.sync_branch
+          sync_repo                 = var.sync_repo
+          sync_rev                  = null
+          sync_wait_secs            = null
+        }
+        prevent_drift = false
+        source_format = "hierarchy"
+      }
+      hierarchy_controller = null
+      policy_controller = {
+        audit_interval_seconds = 120
+        exemptable_namespaces = [
+          "asm-system",
+          "config-management-system",
+          "config-management-monitoring",
+          "gatekeeper-system",
+          "kube-system",
+          "cos-auditd"
+        ]
+        log_denies_enabled         = true
+        referential_rules_enabled  = false
+        template_library_installed = true
+      }
+      version = "1.12.0"
+    }
+  }
+  configmanagement_clusters = {
+    "default" = [for cluster in var.clusters : cluster.cluster_location]
+  }
 }
-
-# Register the cluster to Anthos configuration manager
-data "google_client_config" "default" {}
-
-provider "kubernetes" {
-  host                   = "https://${module.gke-cluster.endpoint}"
-  token                  = data.google_client_config.default.access_token
-  cluster_ca_certificate = base64decode(module.gke-cluster.ca_certificate)
-}
-
-module "acm" {
-  source       = "terraform-google-modules/kubernetes-engine/google//modules/acm"
-  project_id   = var.project_id
-  cluster_name = module.gke-cluster.name
-  location     = module.gke-cluster.location
-  sync_repo    = var.sync_repo
-  sync_branch  = var.sync_branch
-  policy_dir   = var.policy_dir
-
-  depends_on = [module.nodepool]
-}
-
-# module "gke-gateway-api-demo" {
-#   source         = "./modules/gateway-api-l7-gxlb"
-#   endpoint       = module.gke-cluster.endpoint
-#   ca_certificate = module.gke-cluster.ca_certificate
-#   # gateway_api_version = module.gke-gateway-api.version
-# }
