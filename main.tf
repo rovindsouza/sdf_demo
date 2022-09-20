@@ -15,15 +15,14 @@
  */
 
 locals {
-  cluster_type           = "simple-autopilot-private"
-  network_name           = "simple-autopilot-private-network"
-  subnet_name            = "simple-autopilot-private-subnet"
-  master_auth_subnetwork = "simple-autopilot-private-master-subnet"
-  pods_range_name        = "ip-range-pods-simple-autopilot-private"
-  svc_range_name         = "ip-range-svc-simple-autopilot-private"
+  cluster_type           = "simple-autopilot-public"
+  network_name           = "simple-autopilot-public-network"
+  subnet_name            = "simple-autopilot-public-subnet"
+  master_auth_subnetwork = "simple-autopilot-public-master-subnet"
+  pods_range_name        = "ip-range-pods-simple-autopilot-public"
+  svc_range_name         = "ip-range-svc-simple-autopilot-public"
   subnet_names           = [for subnet_self_link in module.gcp-network.subnets_self_links : split("/", subnet_self_link)[length(split("/", subnet_self_link)) - 1]]
 }
-
 
 data "google_client_config" "default" {}
 
@@ -34,7 +33,7 @@ provider "kubernetes" {
 }
 
 module "gke" {
-  source                          = "github.com/terraform-google-modules/terraform-google-kubernetes-engine//modules/beta-autopilot-private-cluster/"
+  source                          = "github.com/terraform-google-modules/terraform-google-kubernetes-engine//modules/beta-autopilot-public-cluster/"
   project_id                      = var.project_id
   name                            = "${local.cluster_type}-cluster"
   regional                        = true
@@ -45,14 +44,4 @@ module "gke" {
   ip_range_services               = local.svc_range_name
   release_channel                 = "REGULAR"
   enable_vertical_pod_autoscaling = true
-  enable_private_endpoint         = true
-  enable_private_nodes            = true
-  master_ipv4_cidr_block          = "172.16.0.0/28"
-
-  master_authorized_networks = [
-    {
-      cidr_block   = "10.60.0.0/17"
-      display_name = "VPC"
-    },
-  ]
 }
