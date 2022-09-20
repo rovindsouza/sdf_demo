@@ -14,97 +14,45 @@
  * limitations under the License.
  */
 
-module "gke-cluster" {
-  source                   = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-cluster?ref=v15.0.0"
-  project_id               = var.project_id
-  name                     = var.cluster_name
-  description              = var.cluster_description
-  location                 = var.cluster_location
-  labels                   = var.labels
-  network                  = var.network
-  subnetwork               = var.subnetwork
-  secondary_range_pods     = var.secondary_range_pods
-  secondary_range_services = var.secondary_range_services
-  cluster_autoscaling      = var.cluster_autoscaling
-  addons = {
-    cloudrun_config                       = false
-    dns_cache_config                      = true
-    http_load_balancing                   = true
-    gce_persistent_disk_csi_driver_config = true
-    horizontal_pod_autoscaling            = var.horizontal_pod_autoscaling
-    config_connector_config               = true
-    kalm_config                           = false
-    gcp_filestore_csi_driver_config       = false
-    network_policy_config                 = false
-    istio_config = {
-      enabled = false
-      tls     = false
-    }
-  }
-  private_cluster_config = var.private_cluster_config
-  logging_config         = ["SYSTEM_COMPONENTS", "WORKLOADS"]
-  monitoring_config      = ["SYSTEM_COMPONENTS", "WORKLOADS"]
-  database_encryption = (
-    var.database_encryption_key == null ? {
-      enabled  = false
-      state    = null
-      key_name = null
-      } : {
-      enabled  = true
-      state    = "ENCRYPTED"
-      key_name = var.database_encryption_key
-    }
-  )
-  default_max_pods_per_node   = var.default_max_pods_per_node
-  enable_binary_authorization = var.enable_binary_authorization
-  master_authorized_ranges    = var.master_authorized_ranges
-  vertical_pod_autoscaling    = var.vertical_pod_autoscaling
+locals {
+  cluster_type           = "simple-autopilot-private"
+  network_name           = "simple-autopilot-private-network"
+  subnet_name            = "simple-autopilot-private-subnet"
+  master_auth_subnetwork = "simple-autopilot-private-master-subnet"
+  pods_range_name        = "ip-range-pods-simple-autopilot-private"
+  svc_range_name         = "ip-range-svc-simple-autopilot-private"
+  subnet_names           = [for subnet_self_link in module.gcp-network.subnets_self_links : split("/", subnet_self_link)[length(split("/", subnet_self_link)) - 1]]
 }
 
-module "nodepool" {
-  source                      = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/gke-nodepool?ref=v15.0.0"
-  project_id                  = var.project_id
-  cluster_name                = module.gke-cluster.name
-  location                    = var.cluster_location
-  name                        = "${module.gke-cluster.name}-np"
-  node_service_account_create = true
-  node_count                  = 5
-  autoscaling_config = {
-    min_node_count = 5
-    max_node_count = 20
-  }
-}
 
-module "gke-gateway-api" {
-  source         = "./modules/gateway-api"
-  endpoint       = module.gke-cluster.endpoint
-  ca_certificate = module.gke-cluster.ca_certificate
-}
-
-# Register the cluster to Anthos configuration manager
 data "google_client_config" "default" {}
 
 provider "kubernetes" {
-  host                   = "https://${module.gke-cluster.endpoint}"
+  host                   = "https://${module.gke.endpoint}"
   token                  = data.google_client_config.default.access_token
-  cluster_ca_certificate = base64decode(module.gke-cluster.ca_certificate)
+  cluster_ca_certificate = base64decode(module.gke.ca_certificate)
 }
 
-module "acm" {
-  source       = "terraform-google-modules/kubernetes-engine/google//modules/acm"
-  project_id   = var.project_id
-  cluster_name = module.gke-cluster.name
-  location     = module.gke-cluster.location
-  sync_repo    = var.sync_repo
-  sync_branch  = var.sync_branch
-  policy_dir   = var.policy_dir
+module "gke" {
+  source                          = "github.com/terraform-google-modules/terraform-google-kubernetes-engine//modules/beta-autopilot-private-cluster/"
+  project_id                      = var.project_id
+  name                            = "${local.cluster_type}-cluster"
+  regional                        = true
+  region                          = var.region
+  network                         = module.gcp-network.network_name
+  subnetwork                      = local.subnet_names[index(module.gcp-network.subnets_names, local.subnet_name)]
+  ip_range_pods                   = local.pods_range_name
+  ip_range_services               = local.svc_range_name
+  release_channel                 = "REGULAR"
+  enable_vertical_pod_autoscaling = true
+  enable_private_endpoint         = true
+  enable_private_nodes            = true
+  master_ipv4_cidr_block          = "172.16.0.0/28"
 
-  depends_on = [module.nodepool]
+  master_authorized_networks = [
+    {
+      cidr_block   = "10.60.0.0/17"
+      display_name = "VPC"
+    },
+  ]
 }
-
-# module "gke-gateway-api-demo" {
-#   source         = "./modules/gateway-api-l7-gxlb"
-#   endpoint       = module.gke-cluster.endpoint
-#   ca_certificate = module.gke-cluster.ca_certificate
-#   # gateway_api_version = module.gke-gateway-api.version
-# }
