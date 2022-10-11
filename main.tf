@@ -17,7 +17,7 @@
 module "project" {
   source          = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/project?ref=v16.0.0"
   name            = var.project_id
-  parent          = var.project_parent
+  parent          = var.parent
   billing_account = var.billing_account
   project_create  = var.project_create
   services = [

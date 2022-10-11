@@ -71,7 +71,7 @@ variable "billing_account" {
   default     = null
 }
 
-variable "project_parent" {
+variable "parent" {
   description = "Parent folder or organization in 'folders/folder_id' or 'organizations/org_id' format."
   type        = string
   default     = null
