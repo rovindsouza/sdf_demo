@@ -62,6 +62,7 @@ variable "peering_range" {
 variable "support_range" {
   description = "Support CIDR range of length /28 (required by Apigee for troubleshooting purposes)."
   type        = string
+  default     = "192.168.20.0/28"
 }
 
 variable "billing_account" {
