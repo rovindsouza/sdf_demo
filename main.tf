@@ -1,5 +1,5 @@
 /**
- * Copyright 2022 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,45 +14,41 @@
  * limitations under the License.
  */
 
-locals {
-  cluster_type           = "simple-autopilot-private"
-  network_name           = "simple-autopilot-private-network"
-  subnet_name            = "simple-autopilot-private-subnet"
-  master_auth_subnetwork = "simple-autopilot-private-master-subnet"
-  pods_range_name        = "ip-range-pods-simple-autopilot-private"
-  svc_range_name         = "ip-range-svc-simple-autopilot-private"
-  subnet_names           = [for subnet_self_link in module.gcp-network.subnets_self_links : split("/", subnet_self_link)[length(split("/", subnet_self_link)) - 1]]
-}
-
-
-data "google_client_config" "default" {}
-
-provider "kubernetes" {
-  host                   = "https://${module.gke.endpoint}"
-  token                  = data.google_client_config.default.access_token
-  cluster_ca_certificate = base64decode(module.gke.ca_certificate)
-}
-
-module "gke" {
-  source                          = "github.com/terraform-google-modules/terraform-google-kubernetes-engine//modules/beta-autopilot-private-cluster/"
-  project_id                      = var.project_id
-  name                            = "${local.cluster_type}-cluster"
-  regional                        = true
-  region                          = var.region
-  network                         = module.gcp-network.network_name
-  subnetwork                      = local.subnet_names[index(module.gcp-network.subnets_names, local.subnet_name)]
-  ip_range_pods                   = local.pods_range_name
-  ip_range_services               = local.svc_range_name
-  release_channel                 = "REGULAR"
-  enable_vertical_pod_autoscaling = true
-  enable_private_endpoint         = true
-  enable_private_nodes            = true
-  master_ipv4_cidr_block          = "172.16.0.0/28"
-
-  master_authorized_networks = [
-    {
-      cidr_block   = "10.60.0.0/17"
-      display_name = "VPC"
-    },
+module "project" {
+  source          = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/project?ref=v16.0.0"
+  name            = var.project_id
+  parent          = var.project_parent
+  billing_account = var.billing_account
+  project_create  = var.project_create
+  services = [
+    "apigee.googleapis.com",
+    "cloudkms.googleapis.com",
+    "compute.googleapis.com",
+    "servicenetworking.googleapis.com"
   ]
 }
+
+module "vpc" {
+  source     = "github.com/terraform-google-modules/cloud-foundation-fabric//modules/net-vpc?ref=v16.0.0"
+  project_id = module.project.project_id
+  name       = var.network
+  subnets    = []
+  psa_config = {
+    ranges = {
+      apigee-range         = var.peering_range
+      apigee-support-range = var.support_range
+    }
+    routes = null
+  }
+}
+
+module "apigee-x-core" {
+  source              = "../../modules/apigee-x-core"
+  project_id          = module.project.project_id
+  apigee_environments = var.apigee_environments
+  ax_region           = var.ax_region
+  apigee_envgroups    = var.apigee_envgroups
+  network             = module.vpc.network.id
+  apigee_instances    = var.apigee_instances
+}
+
