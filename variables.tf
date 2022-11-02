@@ -1,5 +1,5 @@
 /**
- * Copyright 2021 Google LLC
+ * Copyright 2022 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,74 +15,140 @@
  */
 
 variable "project_id" {
-  description = "Project id (also used for the Apigee Organization)."
+  description = "GKE Cluster project id."
   type        = string
 }
 
-variable "ax_region" {
-  description = "GCP region for storing Apigee analytics data (see https://cloud.google.com/apigee/docs/api-platform/get-started/install-cli)."
+variable "cluster_name" {
+  description = "	Cluster name."
   type        = string
+  default     = "my-cluster"
 }
 
-variable "apigee_envgroups" {
-  description = "Apigee Environment Groups."
-  type = map(object({
-    environments = list(string)
-    hostnames    = list(string)
-  }))
-  default = {}
+variable "cluster_description" {
+  description = "Cluster description."
+  type        = string
+  default     = " This is a simple single tenant cluster"
 }
 
-variable "apigee_instances" {
-  description = "Apigee Instances (only one instance for EVAL orgs)."
-  type = map(object({
-    region       = string
-    ip_range     = string
-    environments = list(string)
-  }))
-  default = {}
+variable "cluster_location" {
+  description = "	Cluster zone or region."
+  type        = string
+  default     = "us-central1"
 }
 
-variable "apigee_environments" {
-  description = "List of Apigee Environment Names."
-  type        = list(string)
-  default     = []
+variable "labels" {
+  description = "Cluster resource labels."
+  type        = map(string)
+  default     = { "env" : "test" }
 }
+
 
 variable "network" {
-  description = "Name of the VPC network to peer with the Apigee tennant project."
+  description = "Name or self link of the VPC used for the cluster. Use the self link for Shared VPC."
   type        = string
 }
 
-variable "peering_range" {
-  description = "Service Peering CIDR range."
+
+variable "subnetwork" {
+  description = "VPC subnetwork name or self link."
   type        = string
 }
 
-variable "support_range" {
-  description = "Support CIDR range of length /28 (required by Apigee for troubleshooting purposes)."
+variable "secondary_range_pods" {
+  description = "Subnet secondary range name used for pods."
   type        = string
-  default     = "192.168.20.0/28"
 }
 
-variable "billing_account" {
-  description = "Billing account id."
+variable "secondary_range_services" {
+  description = "Subnet secondary range name used for pods."
   type        = string
-  default     = null
 }
 
-variable "parent" {
-  description = "Parent folder or organization in 'folders/folder_id' or 'organizations/org_id' format."
-  type        = string
-  default     = null
-  validation {
-    condition     = var.parent == null || can(regex("(organizations|folders)/[0-9]+", var.parent))
-    error_message = "Parent must be of the form folders/folder_id or organizations/organization_id."
+variable "cluster_autoscaling" {
+  description = "Enable and configure limits for Node Auto-Provisioning with Cluster Autoscaler."
+  type = object({
+    enabled    = bool
+    cpu_min    = number
+    cpu_max    = number
+    memory_min = number
+    memory_max = number
+  })
+  default = {
+    enabled    = true
+    cpu_min    = 10
+    cpu_max    = 80
+    memory_min = 1024
+    memory_max = 4096
   }
 }
 
-variable "project_create" {
-  description = "Create project. When set to false, uses a data source to reference existing project."
+variable "horizontal_pod_autoscaling" {
+  description = "Set to true to enable horizontal pod autoscaling"
+  type        = bool
+  default     = true
+}
+
+variable "vertical_pod_autoscaling" {
+  description = "Set to true to enable vertical pod autoscaling"
+  type        = bool
+  default     = true
+}
+
+variable "database_encryption_key" {
+  description = "Database Encryption Key name to	enable and configure GKE application-layer secrets encryption."
+  type        = string
+  default     = null
+}
+
+variable "private_cluster_config" {
+  description = "Enable and configure private cluster, private nodes must be true if used."
+  type = object({
+    enable_private_nodes    = bool
+    enable_private_endpoint = bool
+    master_ipv4_cidr_block  = string //The IP range in CIDR notation to use for the hosted master network
+    master_global_access    = bool
+  })
+  default = {
+    enable_private_nodes    = false
+    enable_private_endpoint = false
+    master_ipv4_cidr_block  = "192.168.1.0/28" //The IP range in CIDR notation to use for the hosted master network
+    master_global_access    = true
+  }
+}
+
+variable "master_authorized_ranges" {
+  description = "External Ip address ranges that can access the Kubernetes cluster master through HTTPS.."
+  type        = map(string)
+  default = {
+    "public" = "0.0.0.0/0"
+  }
+}
+
+variable "enable_binary_authorization" {
+  description = "Enable Google Binary Authorization."
   type        = bool
   default     = false
+}
+
+variable "default_max_pods_per_node" {
+  description = "Max nodes allowed per node."
+  type        = number
+  default     = 110
+}
+
+variable "sync_repo" {
+  type        = string
+  description = "ACM Git repo address	"
+  default     = "https://github.com/GoogleCloudPlatform/acm-essentials"
+}
+variable "sync_branch" {
+  type        = string
+  description = "ACM repo Git branch. If un-set, uses Config Management default."
+  default     = ""
+}
+variable "policy_dir" {
+  type        = string
+  description = "ACM repo Git revision. If un-set, uses Config Management default."
+  default     = ""
 }
